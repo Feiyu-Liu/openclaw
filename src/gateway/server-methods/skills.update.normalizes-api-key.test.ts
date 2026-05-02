@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { REDACTED_SENTINEL } from "../../config/redact-snapshot.js";
 
 let writtenConfig: unknown = null;
+let lastReplaceConfigParams: unknown = null;
 let loadedConfig: unknown = {
   skills: {
     entries: {},
@@ -15,7 +16,9 @@ vi.mock("../../config/config.js", () => {
     writeConfigFile: async (cfg: unknown) => {
       writtenConfig = cfg;
     },
-    replaceConfigFile: async ({ nextConfig }: { nextConfig: unknown }) => {
+    replaceConfigFile: async (params: { nextConfig: unknown }) => {
+      lastReplaceConfigParams = params;
+      const { nextConfig } = params;
       writtenConfig = nextConfig;
     },
   };
@@ -26,6 +29,7 @@ const { skillsHandlers } = await import("./skills.js");
 describe("skills.update", () => {
   it("strips embedded CR/LF from apiKey", async () => {
     writtenConfig = null;
+    lastReplaceConfigParams = null;
     loadedConfig = {
       skills: {
         entries: {},
@@ -64,6 +68,7 @@ describe("skills.update", () => {
 
   it("redacts apiKey and secret env values from the response but writes full values to config", async () => {
     writtenConfig = null;
+    lastReplaceConfigParams = null;
     loadedConfig = {
       skills: {
         entries: {},
@@ -115,6 +120,7 @@ describe("skills.update", () => {
 
   it("keeps existing secrets when clients submit redacted sentinel values", async () => {
     writtenConfig = null;
+    lastReplaceConfigParams = null;
     loadedConfig = {
       skills: {
         entries: {
@@ -157,6 +163,32 @@ describe("skills.update", () => {
           },
         },
       },
+    });
+  });
+
+  it("marks config writes as in-process reloads instead of gateway restarts", async () => {
+    writtenConfig = null;
+    lastReplaceConfigParams = null;
+    loadedConfig = {
+      skills: {
+        entries: {},
+      },
+    };
+
+    await skillsHandlers["skills.update"]({
+      params: {
+        skillKey: "demo-skill",
+        enabled: true,
+      },
+      req: {} as never,
+      client: null as never,
+      isWebchatConnect: () => false,
+      context: { getRuntimeConfig: () => loadedConfig } as never,
+      respond: () => {},
+    });
+
+    expect(lastReplaceConfigParams).toMatchObject({
+      afterWrite: { mode: "auto" },
     });
   });
 });
